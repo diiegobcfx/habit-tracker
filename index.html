@@ -539,11 +539,15 @@ async function enablePush(){
   }catch{toast('No se pudo suscribir')}
 }
 async function disablePush(){
+  S.push=false;save();render();toast('Avisos desactivados');
   try{
-    const reg=await navigator.serviceWorker.ready,sub=await reg.pushManager.getSubscription();
-    if(sub){await fetch(CFG.WORKER_URL+'/unsubscribe',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({endpoint:sub.endpoint})}).catch(()=>{});await sub.unsubscribe()}
+    const reg=await Promise.race([navigator.serviceWorker.ready,new Promise((_,no)=>setTimeout(no,4000))]);
+    const sub=await reg.pushManager.getSubscription();
+    if(sub){
+      fetch(CFG.WORKER_URL+'/unsubscribe',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({endpoint:sub.endpoint})}).catch(()=>{});
+      await sub.unsubscribe().catch(()=>{});
+    }
   }catch{}
-  S.push=false;save();render();
 }
 
 /* ===== arranque ===== */
