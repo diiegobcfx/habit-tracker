@@ -518,7 +518,7 @@ async function doSync(loud=false){
   try{
     const reg=await navigator.serviceWorker.ready,sub=await reg.pushManager.getSubscription();
     if(!sub)return false;
-    const r=await fetch(CFG.WORKER_URL+'/sync',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({
+    const r=await fetch(CFG.WORKER_URL+'/sync',{method:'POST',signal:AbortSignal.timeout(8000),headers:{'Content-Type':'application/json'},body:JSON.stringify({
       subscription:sub.toJSON(),tz:Intl.DateTimeFormat().resolvedOptions().timeZone,
       doneDate:allDoneToday()?today():null,
       reminders:S.reminders.filter(r=>r.on).map(({id,time,text})=>({id,time,text}))})});
@@ -526,17 +526,23 @@ async function doSync(loud=false){
     return r.ok;
   }catch{if(loud)toast('No se pudo contactar con el Worker');return false}
 }
+const withTimeout=(p,ms,msg)=>Promise.race([p,new Promise((_,no)=>setTimeout(()=>no(new Error(msg)),ms))]);
 async function enablePush(){
   if(!CFG.WORKER_URL||!CFG.VAPID_PUBLIC)return toast('Falta configurar WORKER_URL y VAPID_PUBLIC en index.html');
   if(!('serviceWorker'in navigator)||!('PushManager'in window))return toast('Instala la app (Compartir → Añadir a inicio) y ábrela desde el icono');
-  const p=await Notification.requestPermission();
-  if(p!=='granted')return toast('Permiso no concedido');
+  toast('Activando…');
   try{
-    const reg=await navigator.serviceWorker.ready;
-    const sub=await reg.pushManager.getSubscription()||await reg.pushManager.subscribe({userVisibleOnly:true,applicationServerKey:urlB64(CFG.VAPID_PUBLIC)});
-    if(!sub)throw 0;
-    S.push=true;save();const ok=await doSync(true);render();if(ok)toast('Avisos activados');
-  }catch{toast('No se pudo suscribir')}
+    let p=Notification.permission;
+    if(p!=='granted')p=await withTimeout(Notification.requestPermission(),20000,'permiso sin respuesta');
+    if(p!=='granted')return toast('Permiso no concedido: revisa Ajustes de iOS → Notificaciones → Ritual');
+    const reg=await withTimeout(navigator.serviceWorker.ready,5000,'service worker no listo');
+    let sub=await reg.pushManager.getSubscription();
+    if(!sub)sub=await withTimeout(reg.pushManager.subscribe({userVisibleOnly:true,applicationServerKey:urlB64(CFG.VAPID_PUBLIC)}),10000,'subscribe sin respuesta');
+    S.push=true;save();
+    const ok=await doSync(true);
+    render();
+    if(ok)toast('Avisos activados');
+  }catch(e){toast('Error al activar: '+(e&&e.message||e))}
 }
 async function disablePush(){
   S.push=false;save();render();toast('Avisos desactivados');
