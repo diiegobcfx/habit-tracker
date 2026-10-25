@@ -513,15 +513,18 @@ function editSheet(hb,pre){
 const urlB64=s=>{const b=(s+'='.repeat((4-s.length%4)%4)).replace(/-/g,'+').replace(/_/g,'/');return Uint8Array.from(atob(b),c=>c.charCodeAt(0))};
 let syncT;
 function syncPush(){clearTimeout(syncT);syncT=setTimeout(doSync,1200)}
-async function doSync(){
-  if(!S.push||!CFG.WORKER_URL||!('serviceWorker'in navigator))return;
+async function doSync(loud=false){
+  if(!S.push||!CFG.WORKER_URL||!('serviceWorker'in navigator))return false;
   try{
-    const reg=await navigator.serviceWorker.ready,sub=await reg.pushManager.getSubscription();if(!sub)return;
-    await fetch(CFG.WORKER_URL+'/sync',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({
+    const reg=await navigator.serviceWorker.ready,sub=await reg.pushManager.getSubscription();
+    if(!sub)return false;
+    const r=await fetch(CFG.WORKER_URL+'/sync',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({
       subscription:sub.toJSON(),tz:Intl.DateTimeFormat().resolvedOptions().timeZone,
       doneDate:allDoneToday()?today():null,
       reminders:S.reminders.filter(r=>r.on).map(({id,time,text})=>({id,time,text}))})});
-  }catch{}
+    if(!r.ok&&loud)toast('El Worker rechazó la suscripción (HTTP '+r.status+')');
+    return r.ok;
+  }catch{if(loud)toast('No se pudo contactar con el Worker');return false}
 }
 async function enablePush(){
   if(!CFG.WORKER_URL||!CFG.VAPID_PUBLIC)return toast('Falta configurar WORKER_URL y VAPID_PUBLIC en index.html');
@@ -532,7 +535,7 @@ async function enablePush(){
     const reg=await navigator.serviceWorker.ready;
     const sub=await reg.pushManager.getSubscription()||await reg.pushManager.subscribe({userVisibleOnly:true,applicationServerKey:urlB64(CFG.VAPID_PUBLIC)});
     if(!sub)throw 0;
-    S.push=true;save();await doSync();render();toast('Avisos activados');
+    S.push=true;save();const ok=await doSync(true);render();if(ok)toast('Avisos activados');
   }catch{toast('No se pudo suscribir')}
 }
 async function disablePush(){
